@@ -1,0 +1,454 @@
+#include <LiquidCrystal.h>
+LiquidCrystal lcd(13, 12, 11, 10, 9, 8);
+extern volatile unsigned long timer0_millis;
+int buz = 7, tem = A0, MODE = 2, OK = 3;
+int alpha = 0;
+ 
+//for Clock
+int hh, mm, ss;
+int AM = 1, Colon = 1, Mode = 0, temp = 0;
+unsigned long InputT, timeVal, time;
+ 
+//for Alarm
+int i, Aset = 0, Aconfirm = 0;
+int ah = 0, am = 0, AP = 1;
+unsigned long alarm;
+ 
+//for Timer
+int ts = 0, unit = 1, Tset = 0, Tconfirm = 0;
+unsigned long Current_Time, timer;
+ 
+void setup()
+{
+    Serial.begin(9600);
+    lcd.begin(16, 2);
+    pinMode(buz, OUTPUT);
+    pinMode(tem, INPUT);
+    pinMode(MODE, INPUT_PULLUP);
+    pinMode(OK, INPUT_PULLUP);
+    attachInterrupt(digitalPinToInterrupt(MODE), Next_Mode, FALLING);
+    attachInterrupt(digitalPinToInterrupt(OK), Ok, FALLING);
+    Clock_begin();
+}
+ 
+void loop()
+{
+    switch (Mode)
+    {
+    case 0:
+        Clock();
+        break;
+    case 1:
+        Alarm();
+        break;
+    case 2:
+        Timer();
+        break;
+    case 3:
+        Thermo();
+        break;
+    }
+}
+ 
+void Next_Mode()
+{
+    alpha++;
+    Mode = alpha % 4;
+    lcd.clear();
+}
+void Ok()
+{
+    if (Mode == 1)
+    {
+        Aconfirm++;
+        if (Aconfirm == 6)
+        {
+            Aconfirm = 0;
+            lcd.clear();
+            Aset = 0;
+        }
+    }
+    else if (Mode == 2)
+    {
+        Tconfirm++;
+        if (Tconfirm == 5)
+        {
+            Tconfirm = 0;
+            lcd.clear();
+            Tset = 0;
+        }
+    }
+    if (temp == 1) temp = 0;
+}
+ 
+//Clock
+void Clock_begin()
+{
+    long time_in;
+ 
+    lcd.setCursor(0, 0);
+    lcd.print("Put Current Time");
+    lcd.setCursor(0, 1);
+    lcd.print("On SerialMonitor");
+    Serial.println("Input Time");
+    Serial.println("Time Form => 04:25:16 AM = 042516");
+    Serial.println("Time Form => 06:30:07 PM = 183007");
+    int temp = 0;
+alpha:
+    if (Serial.available())
+    {
+        time_in = Serial.parseInt();
+        temp = 1;
+    }
+    if (temp == 0) goto alpha;
+    InputT = ((time_in / 10000) * 3600000) + (((time_in % 10000) / 100) * 60000) + (((time_in % 10000) % 100) * 1000);
+    lcd.clear();
+    lcd.setCursor(3, 0);
+    lcd.print("Clock Mode");
+    timer0_millis = InputT;
+}
+void Clock()
+{
+    if (millis() - timeVal >= 1000)
+    {
+        if (millis() >= 86400000) timer0_millis = 0;
+        time = millis() / 1000;
+        timeVal = millis();
+        //AMPM 구분
+        if (millis() > 43200000) AM = 0;
+        else AM = 1;
+        //밀리세컨드 > 시간
+        hh = (time / 3600) % 24;
+        mm = (time / 60) % 60;
+        ss = time % 60;
+ 
+        Colon = !Colon;
+        Clock_print();
+        if (Aset == 1) Alarm_Work();
+        //if (Tset == 1) Timer_Work();
+    }
+}
+void Clock_AMPM()
+{
+    lcd.setCursor(4, 1);
+    if (AM == 1) lcd.print("AM");
+    else lcd.print("PM");
+}
+void Clock_print()
+{
+    Clock_AMPM();
+    lcd.setCursor(3, 0);
+    lcd.print("Clock Mode");
+    lcd.setCursor(7, 1);
+    if (hh >= 13)
+    {
+        lcd.print((hh - 12) / 10);
+        lcd.print((hh - 12) % 10);
+    }
+    else
+    {
+        lcd.print(hh / 10);
+        lcd.print(hh % 10);
+    }
+    lcd.setCursor(9, 1);
+    if (Colon == 1) lcd.print(":");
+    else lcd.print(" ");
+    lcd.setCursor(10, 1);
+    lcd.print(mm / 10);
+    lcd.print(mm % 10);
+}
+//Alarm
+void Alarm()
+{
+    if (Aset == 1) Alarm_Display();
+    else Alarm_Setting();
+}
+void Alarm_Display()
+{
+    lcd.clear();
+    lcd.setCursor(3, 0);
+    lcd.print("Alarm Set!");
+    lcd.setCursor(4, 1);
+    if (AP == 0) lcd.print("AM");
+    else lcd.print("PM");
+    lcd.print(" ");
+    lcd.print(ah / 10);
+    lcd.print(ah % 10);
+    lcd.print(":");
+    lcd.print(am / 10);
+    lcd.print(am % 10);
+    while (Mode == 1) if (Aset == 0) break;
+}
+void Alarm_Setting()
+{
+Alarm_Reset:
+    if (Aconfirm == 0)
+    {
+        lcd.setCursor(3, 0);
+        lcd.print("Alarm Set?");
+    }
+    else if (Aconfirm == 1)
+    {
+        lcd.setCursor(1, 0);
+        lcd.print("Alarm Set Mode");
+ 
+        Alarm_AMPM();
+        Alarm_Hour();
+        Alarm_Minute();
+ 
+        lcd.clear();
+        lcd.setCursor(1, 0);
+        lcd.print("Is it Correct?");
+ 
+        lcd.setCursor(4, 1);
+        if (AP == 0) lcd.print("AM");
+        else lcd.print("PM");
+        lcd.print(" ");
+        lcd.print(ah / 10);
+        lcd.print(ah % 10);
+        lcd.print(":");
+        lcd.print(am / 10);
+        lcd.print(am % 10);
+ 
+        delay(3000);
+        if (Aconfirm == 5)
+        {
+            Aset = 1;
+        }
+        else
+        {
+            Aconfirm = 1;
+            lcd.clear();
+            goto Alarm_Reset;
+        }
+    }
+}
+void Alarm_AMPM()
+{
+    lcd.setCursor(2, 1);
+    lcd.print("Set AMPM:");
+    while (Aconfirm == 1)
+    {
+        lcd.setCursor(12, 1);
+        AP = !AP;
+        if (AP == 0) lcd.print("AM");
+        else lcd.print("PM");
+        delay(1000);
+    }
+}
+void Alarm_Hour()
+{
+    lcd.setCursor(2, 1);
+    lcd.print("Set Hour:");
+    while (Aconfirm == 2)
+    {
+        for (ah = 1; ah < 13; ah++)
+        {
+            if (ah == 13) ah = 1;
+            lcd.setCursor(12, 1);
+            lcd.print(ah / 10);
+            lcd.print(ah % 10);
+            delay(250);
+            if (Aconfirm == 3) break;
+        }
+    }
+}
+void Alarm_Minute()
+{
+    lcd.setCursor(0, 1);
+    lcd.print("Set Minute:");
+    while (Aconfirm == 3)
+    {
+        for (am = 0; am < 61; am++)
+        {
+            if (am == 60) am == 0;
+            lcd.setCursor(12, 1);
+            lcd.print(am / 10);
+            lcd.print(am % 10);
+            delay(250);
+            if (Aconfirm == 4) break;
+        }
+    }
+}
+void Alarm_Work()
+{
+    if (AP == 0) alarm = ah * 3600000 + am * 60000;
+    else alarm = ah * 3600000 + am * 60000 + 43200000;
+    if (Aset == 1)
+    {
+        if (millis() >= alarm)
+        {
+            Beep();
+ 
+            Aconfirm = 0;
+            Aset = 0;
+            temp = 0;
+        }
+    }
+}
+//Timer
+void Timer()
+{
+    if (Tset == 1) Timer_Display();
+    else Timer_Setting();
+}
+void Timer_Setting()
+{
+Timer_Reset:
+    if (Tconfirm == 0)
+    {
+        lcd.setCursor(3, 0);
+        lcd.print("Timer Set?");
+    }
+    else if (Tconfirm == 1)
+    {
+        lcd.setCursor(1, 0);
+        lcd.print("Timer Set Mode");
+ 
+        Timer_Units();
+        Timer_Values();
+ 
+        lcd.clear();
+        lcd.setCursor(1, 0);
+        lcd.print("Is it Correct?");
+ 
+        lcd.setCursor(5, 1);
+        lcd.print(ts / 10);
+        lcd.print(ts % 10);
+ 
+        lcd.setCursor(9, 1);
+        if (unit == 0) lcd.print("Sec");
+        else lcd.print("Min");
+ 
+        delay(3000);
+        if (Tconfirm == 4)
+        {
+            Tset = 1;
+            if (unit == 1) ts = ts * 60;
+        }
+        else
+        {
+            Tconfirm = 1;
+            lcd.clear();
+            goto Timer_Reset;
+        }
+    }
+}
+void Timer_Units()
+{
+    lcd.setCursor(0, 1);
+    lcd.print("Select Unit: ");
+    while (Tconfirm == 1)
+    {
+        unit = !unit;
+        lcd.setCursor(13, 1);
+        if (unit == 0) lcd.print("Sec");
+        else lcd.print("Min");
+        delay(1000);
+    }
+}
+void Timer_Values()
+{
+    lcd.clear();
+    lcd.setCursor(1, 0);
+    lcd.print("Timer Set Mode");
+    lcd.setCursor(2, 1);
+    lcd.print("Set Values: ");
+    ts = 0;
+    while (Tconfirm == 2)
+    {
+        ts++;
+        lcd.setCursor(13, 1);
+        lcd.print(ts / 10);
+        lcd.print(ts % 10);
+        delay(250);
+    }
+}
+void Timer_Display()
+{
+    lcd.clear();
+    lcd.setCursor(3, 0);
+    lcd.print("Timer Set!");
+    while (Tset == 1)
+    {
+        lcd.setCursor(4, 1);
+        if (unit == 0) 
+        {
+            lcd.print(ts / 10);
+            lcd.print(ts % 10);
+        }
+        else
+        {
+            if (ts < 600) lcd.print(" ");
+            lcd.print(ts / 60);
+        }
+        lcd.setCursor(9, 1);
+        if (unit == 0) lcd.print("Sec");
+        else lcd.print("Min");
+        delay(1000);
+        ts--;
+        if (ts == 0)
+        {
+            Beep();
+            Tset = 0;
+        }
+    }
+}
+ 
+/*
+void Timer_Work()
+{
+    ts--;
+    if (ts == 0)
+    {
+        while (temp == 0)
+        {
+            Beep();
+        }
+        Tconfirm = 0;
+        Tset = 0;
+        temp = 0;
+    }
+}
+*/
+ 
+//Temperature
+void Thermo()
+{
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Temperature Mode");
+    int tempValue = analogRead(tem);
+    double temperature = (tempValue * 500.0) / 1024.0 - 50;
+ 
+    lcd.setCursor(4, 1);
+    lcd.print(temperature);
+    lcd.setCursor(10, 1);
+    lcd.print("'C");
+    delay(1000);
+}
+ 
+//ETC
+void Beep()
+{
+    temp = 1;
+    while (temp == 1)
+    {
+        tone(buz, 2620);
+        delay(100);
+        noTone(buz);
+        delay(100);
+        tone(buz, 2620);
+        delay(100);
+        noTone(buz);
+        delay(100);
+        tone(buz, 2620);
+        delay(100);
+        noTone(buz);
+        delay(100);
+        tone(buz, 2620);
+        delay(200);
+        noTone(buz);
+        delay(200);
+    }
+}
